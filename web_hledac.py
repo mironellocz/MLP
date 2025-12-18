@@ -1,56 +1,87 @@
 import streamlit as st
 import requests
-import time
 
-# --- KONFIGURACE STRÁNKY ---
-st.set_page_config(page_title="Hledání v MLP", page_icon="📚", layout="centered")
+# 1. Nastavení stránky
+st.set_page_config(page_title="Hledání v MLP", page_icon="📚")
 
-# --- GRAFICKÉ ROZHRANÍ (UI) ---
-st.title("🔍 Hledač v Městské knihovně")
-st.markdown("Prohledává fond **Městské knihovny v Praze** přes rozhraní Knihovny.cz.")
+# --- FUNKCE PRO VYHLEDÁVÁNÍ ---
+@st.cache_data(ttl=3600)
+def ziskej_data_z_knihovny(titul, jen_dostupne):
+    url = "https://www.knihovny.cz/api/v1/search"
+    
+    # Základní filtry
+    # 'building:MLP' omezí hledání pouze na Městskou knihovnu v Praze
+    filtry = ["building:MLP"]
+    
+    # Pokud uživatel zaškrtne 'jen dostupné', přidáme filtr statusu
+    if jen_dostupne:
+        filtry.append("status:available")
+    
+    params = {
+        "lookfor": titul,
+        "type": "Title",
+        "sort": "relevance",
+        "limit": 20,
+        "filter[]": filtry
+    }
+    
+    headers = {
+        "User-Agent": "KnihovniHledacMLP/1.0 (kontakt: vase@email.cz)"
+    }
+    
+    response = requests.get(url, params=params, headers=headers)
+    return response
 
-# Sidebar pro nastavení
+# --- WEBOVÉ ROZHRANÍ ---
+st.title("📚 Vyhledávač Městské knihovny v Praze")
+st.info("Vyhledáváte pouze ve fondu Městské knihovny v Praze (přes rozhraní Knihovny.cz).")
+
+# Nastavení v postranním panelu
 with st.sidebar:
-    st.header("⚙️ Filtry")
-    pouze_volne = st.checkbox("Pouze dostupné k vypůjčení", value=False)
-    st.divider()
-    st.caption("Verze 2.1 | Ochrana proti chybě 429 aktivní")
+    st.header("Nastavení")
+    jen_dostupne = st.checkbox("Pouze dostupné k vypůjčení", value=False)
+    st.write("---")
+    st.caption("Data jsou čerpána z portálu Knihovny.cz")
 
-# Hlavní vyhledávací pole
-dotaz = st.text_input("Zadejte název knihy nebo autora:", placeholder="Např. Malý princ")
+hledany_titul = st.text_input("Zadejte název knihy:", placeholder="Např. Saturnin")
 
-if st.button("🔎 Vyhledat tituly", use_container_width=True):
-    if dotaz:
-        with st.spinner('Komunikuji se serverem knihovny...'):
-            vysledek = hledej_v_knihovne(dotaz, pouze_volne)
-            
-            if vysledek == "error_429":
-                st.error("⚠️ Server Knihovny.cz je momentálně přetížen (chyba 429). Zkuste to prosím znovu za 1-2 minuty.")
-            elif isinstance(vysledek, str) and vysledek.startswith("error"):
-                st.error(f"❌ Došlo k chybě při spojení se serverem ({vysledek}).")
-            else:
-                pocet = vysledek.get("resultCount", 0)
+if st.button("Vyhledat"):
+    if hledany_titul:
+        with st.spinner('Prohledávám fond MLP...'):
+            try:
+                response = ziskej_data_z_knihovny(hledany_titul, jen_dostupne)
                 
-                if pocet > 0:
-                    st.success(f"Nalezeno {pocet} výsledků v MLP")
+                if response.status_code == 200:
+                    data = response.json()
+                    pocet = data.get("resultCount", 0)
                     
-                    for record in vysledek.get("records", []):
-                        with st.container(border=True):
-                            col1, col2 = st.columns([4, 1])
-                            
-                            with col1:
-                                st.subheader(record.get("title", "Neznámý název"))
-                                autori = record.get("authors", {}).get("primary", {})
-                                autor = ", ".join(autori.keys()) if autori else "Neznámý autor"
-                                st.write(f"👤 **Autor:** {autor}")
-                                st.write(f"📅 **Rok vydání:** {record.get('publicationDates', ['-'])[0]}")
-                            
-                            with col2:
-                                id_knihy = record.get("id")
-                                link = f"https://www.knihovny.cz/Record/{id_knihy}"
-                                st.link_button("Detail", link)
+                    if pocet > 0:
+                        st.success(f"Nalezeno {pocet} titulů v MLP.")
+                        
+                        for record in data.get("records", []):
+                            # Vytvoření přehledné karty pro každou knihu
+                            with st.container():
+                                col1, col2 = st.columns([3, 1])
+                                with col1:
+                                    st.subheader(record.get("title"))
+                                    autori = record.get("authors", {}).get("primary", {})
+                                    autor = ", ".join(autori.keys()) if autori else "Neznámý autor"
+                                    st.write(f"👤 **Autor:** {autor}")
+                                    st.write(f"📅 **Rok:** {record.get('publicationDates', ['-'])[0]}")
+                                
+                                with col2:
+                                    id_knihy = record.get("id")
+                                    st.link_button("Detail / Rezervovat", f"https://www.knihovny.cz/Record/{id_knihy}")
+                                st.write("---")
+                    else:
+                        st.warning("V Městské knihovně v Praze nebylo nic nalezeno. Zkuste jiný název nebo vypněte filtr dostupnosti.")
+                
+                elif response.status_code == 429:
+                    st.error("Příliš mnoho dotazů (Chyba 429). Počkejte prosím chvíli.")
                 else:
-                    st.warning("V MLP nebyl nalezen žádný odpovídající titul.")
+                    st.error(f"Chyba serveru: {response.status_code}")
+                    
+            except Exception as e:
+                st.error(f"Došlo k chybě: {e}")
     else:
-        st.info("Zadejte název knihy.")
-
+        st.info("Napište název knihy, kterou hledáte.")
