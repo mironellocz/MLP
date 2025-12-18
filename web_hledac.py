@@ -1,4 +1,29 @@
-import streamlit as st
+import time  # Přidejte na začátek souboru
+
+@st.cache_data(ttl=3600)
+def ziskej_data_z_knihovny(titul, jen_dostupne):
+    url = "https://www.knihovny.cz/api/v1/search"
+    filtry = ["building:MLP"]
+    if jen_dostupne:
+        filtry.append("status:available")
+    
+    params = {"lookfor": titul, "type": "Title", "limit": 20, "filter[]": filtry}
+    headers = {"User-Agent": "VyhledavacStudent/2.0 (osobni projekt; kontakt: mcmiron@seznam.cz)"}
+
+    # Pokusíme se o dotaz celkem 3x
+    for pokus in range(3):
+        response = requests.get(url, params=params, headers=headers)
+        
+        if response.status_code == 200:
+            return response
+        elif response.status_code == 429:
+            # Pokud nás blokují, počkáme (2s, pak 4s) a zkusíme znovu
+            cekej = (pokus + 1) * 2
+            time.sleep(cekej)
+            continue 
+        else:
+            return response
+    return responseimport streamlit as st
 import requests
 
 # 1. Nastavení stránky
@@ -85,3 +110,4 @@ if st.button("Vyhledat"):
                 st.error(f"Došlo k chybě: {e}")
     else:
         st.info("Napište název knihy, kterou hledáte.")
+
