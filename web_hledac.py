@@ -5,53 +5,6 @@ import time
 # --- KONFIGURACE STRÁNKY ---
 st.set_page_config(page_title="Hledání v MLP", page_icon="📚", layout="centered")
 
-# --- FUNKCE PRO VYHLEDÁVÁNÍ S RETRY MECHANISMEM ---
-@st.cache_data(ttl=3600, show_spinner=False)
-def hledej_v_knihovne(titul, jen_dostupne):
-    url = "https://www.knihovny.cz/api/v1/search"
-    
-    # Nastavení filtrů pro MLP a volitelně dostupnost
-    filtry = ["building:MLP"]
-    if jen_dostupne:
-        filtry.append("status:available")
-    
-    params = {
-        "lookfor": titul,
-        "type": "Title",
-        "sort": "relevance",
-        "limit": 15,
-        "filter[]": filtry
-    }
-    
-    # Personalizovaná hlavička snižuje šanci na zablokování
-    headers = {
-        "User-Agent": "VyhledavacKnihMLP/2.0 (Student Project; contact: vas-email@seznam.cz)"
-    }
-
-    max_pokusu = 3
-    for pokus in range(max_pokusu):
-        try:
-            response = requests.get(url, params=params, headers=headers, timeout=10)
-            
-            if response.status_code == 200:
-                return response.json()
-            
-            elif response.status_code == 429:
-                # Pokud nás server blokuje, zkusíme počkat a zopakovat (exponential backoff)
-                cekej = (pokus + 1) * 3
-                if pokus < max_pokusu - 1:
-                    time.sleep(cekej)
-                    continue
-                else:
-                    return "error_429"
-            else:
-                return f"error_{response.status_code}"
-                
-        except requests.exceptions.RequestException:
-            return "error_connection"
-            
-    return "error_unknown"
-
 # --- GRAFICKÉ ROZHRANÍ (UI) ---
 st.title("🔍 Hledač v Městské knihovně")
 st.markdown("Prohledává fond **Městské knihovny v Praze** přes rozhraní Knihovny.cz.")
@@ -100,3 +53,4 @@ if st.button("🔎 Vyhledat tituly", use_container_width=True):
                     st.warning("V MLP nebyl nalezen žádný odpovídající titul.")
     else:
         st.info("Zadejte název knihy.")
+
